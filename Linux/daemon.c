@@ -20,6 +20,7 @@
 // Necessary for Desktop notifications
 #include <libnotify/notify.h> // apt-get install libnotify-dev
 
+
 #define SUBSYSTEM "usb"
 
 int daemonize() {
@@ -104,8 +105,8 @@ static void device_notification(struct udev_device* dev)
 
 
 	if (0> asprintf(&message, 
-		"Node: %s\n   Subsystem: %s\n   Devtype: %s\n   Action: %s\n",
-		udev_device_get_devnode(dev), udev_device_get_subsystem(dev), udev_device_get_devtype(dev), udev_device_get_action(dev))) {
+		"Node: %s\n   Serial #: %s\n   idVendor-idProduct: %s-%s\n   Action: %s\n",
+		udev_device_get_devnode(dev), udev_device_get_sysattr_value(dev, "serial"), vendor, product, action)) {
 		syslog(LOG_WARNING, "[-] Format String failed");
 		return;
 	}
@@ -121,8 +122,13 @@ static void device_notification(struct udev_device* dev)
 static void process_device(struct udev_device* dev)
 {
 	if (dev) {
-		if (udev_device_get_devnode(dev))
+		if (udev_device_get_devnode(dev)) {
+
+			// TODO: Filter devices
+
+			// Display a notification
 			device_notification(dev);
+		}
 
 		udev_device_unref(dev);
 	}
