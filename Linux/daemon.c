@@ -20,7 +20,7 @@
 // Necessary for Desktop notifications
 #include <libnotify/notify.h> // apt-get install libnotify-dev
 
-
+#define SUBSYSTEM "usb"
 
 int daemonize() {
 
@@ -75,6 +75,57 @@ int daemonize() {
 	// Open the log file 
 	openlog ("USBGuard", LOG_PID, LOG_DAEMON);
 
+	return 0;
+}
+
+
+
+static void device_notification(struct udev_device* dev)
+{
+
+	notify_init("Sample");
+	NotifyNotification * n = NULL;
+	char * message;
+
+	const char* action = udev_device_get_action(dev);
+	if (! action) {
+		action = "exists";
+	}
+
+	const char* vendor = udev_device_get_sysattr_value(dev, "idVendor");
+	if (! vendor) {
+		vendor = "0000";
+	}
+
+	const char* product = udev_device_get_sysattr_value(dev, "idProduct");
+	if (! product) {
+		product = "0000";
+	}
+
+
+	if (0> asprintf(&message, 
+		"Node: %s\n   Subsystem: %s\n   Devtype: %s\n   Action: %s\n",
+		udev_device_get_devnode(dev), udev_device_get_subsystem(dev), udev_device_get_devtype(dev), udev_device_get_action(dev))) {
+		syslog(LOG_WARNING, "[-] Format String failed");
+		return;
+	}
+
+	n = notify_notification_new ("USBGuard", message, 0);
+
+	if(!notify_notification_show(n, 0)) {
+		syslog(LOG_WARNING, "[-] Could not display message");
+		return;
+	}
+}
+
+static void process_device(struct udev_device* dev)
+{
+	if (dev) {
+		if (udev_device_get_devnode(dev))
+			device_notification(dev);
+
+		udev_device_unref(dev);
+	}
 }
 
 
@@ -121,91 +172,32 @@ static int usb_match_device(struct usb_device *dev,
 } */
 
 
-void monitor() {
 
-	int fd;
-	struct udev *udev;
-	struct udev_monitor *mon;
-	struct udev_device *dev;
+static void monitor_devices(struct udev* udev)
+{
+	struct udev_monitor* mon = udev_monitor_new_from_netlink(udev, "udev");
 
-	notify_init("Sample");
-	NotifyNotification * n = NULL;
-	char * message;
-
-	/* Create the udev object */
-	udev = udev_new();
-	if (!udev) {
-		printf("Can't create udev\n");
-		exit(1);
-	}
-
-	/* Set up a monitor to monitor hidraw devices */
-	mon = udev_monitor_new_from_netlink(udev, "udev");
-	udev_monitor_filter_add_match_subsystem_devtype(mon, "hidraw", NULL);
+	udev_monitor_filter_add_match_subsystem_devtype(mon, SUBSYSTEM, NULL);
 	udev_monitor_enable_receiving(mon);
-	/* Get the file descriptor (fd) for the monitor.
-	   This fd will get passed to select() */
-	fd = udev_monitor_get_fd(mon);
-	
-	/* This section will run continuously, calling usleep() at
-	   the end of each pass. This is to demonstrate how to use
-	   a udev_monitor in a non-blocking way. */
+
+	int fd = udev_monitor_get_fd(mon);
+
 	while (1) {
-		/* Set up the call to select(). In this case, select() will
-		   only operate on a single file descriptor, the one
-		   associated with our udev_monitor. Note that the timeval
-		   object is set to 0, which will cause select() to not
-		   block. */
 		fd_set fds;
-		struct timeval tv;
-		int ret;
-		
 		FD_ZERO(&fds);
 		FD_SET(fd, &fds);
-		tv.tv_sec = 0;
-		tv.tv_usec = 0;
-		
-		ret = select(fd+1, &fds, NULL, NULL, &tv);
-		
-		/* Check if our file descriptor has received data. */
-		if (ret > 0 && FD_ISSET(fd, &fds)) {
-			printf("\nselect() says there should be data\n");
-			
-			/* Make the call to receive the device.
-			   select() ensured that this will not block. */
-			dev = udev_monitor_receive_device(mon);
-			if (dev) {
 
-				/*if (0> asprintf(&message, 
-					"Got Device\n   Node: %s\n   Subsystem: %s\n   Devtype: %s\n   Action: %s\n",
-					udev_device_get_devnode(dev), udev_device_get_subsystem(dev), udev_device_get_devtype(dev), udev_device_get_action(dev))) {
-					syslog(LOG_WARNING, "[-] Format String failed");
-					return;
-				}
-
-				n = notify_notification_new ("USBGuard", message, 0);
-
-				if(!notify_notification_show(n, 0)) {
-					syslog(LOG_WARNING, "[-] Could not display message");
-					return;
-				}*/
-
-				printf("Got Device\n");
-				printf("   Node: %s\n", udev_device_get_devnode(dev));
-				printf("   Subsystem: %s\n", udev_device_get_subsystem(dev));
-				printf("   Devtype: %s\n", udev_device_get_devtype(dev));
-
-				printf("   Action: %s\n",udev_device_get_action(dev));
-				
-				udev_device_unref(dev);
-			}
-			else {
-				printf("No Device from receive_device(). An error occured.\n");
-			}					
+		// Wait for monitor to return
+		int ret = select(fd+1, &fds, NULL, NULL, NULL);
+		if (ret <= 0) {
+			break;
 		}
-		usleep(250*1000);
-		printf(".");
-		fflush(stdout);
+		
+
+		if (FD_ISSET(fd, &fds)) {
+			struct udev_device* dev = udev_monitor_receive_device(mon);
+			process_device(dev);
+		}
 	}
 }
 
@@ -217,11 +209,18 @@ int main(int * argc, int ** argv) {
 	NotifyNotification * n = NULL;
 	char * message;
 
+	struct udev *udev;
+	/* Create the udev object */
+	udev = udev_new();
+	if (!udev) {
+		printf("Can't create udev\n");
+		exit(1);
+	}
 
 	// Daemonize and run in the backgroun
-	//daemonize();
+	daemonize();
 
-	if (0> asprintf(&message, "Background service is running...")) {
+	if (0> asprintf(&message, "Background service is running...\nPID: %d", getpid())) {
 		return EXIT_FAILURE;
 	}
 	
@@ -239,7 +238,8 @@ int main(int * argc, int ** argv) {
 	syslog(LOG_NOTICE, "[+] USBGuard Started");
 
 	// Begin monitoring for USB insertions/removals
-	monitor();
+	monitor_devices(udev);
+	//monitor();
 
 	// Cleanup
 	syslog(LOG_NOTICE, "[-] USBGuard Stopped");
