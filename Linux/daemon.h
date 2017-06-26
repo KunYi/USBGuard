@@ -12,6 +12,7 @@
 #include <signal.h>   //signal(3)
 #include <sys/stat.h> //umask(3)
 #include <syslog.h>   //syslog(3), openlog(3), closelog(3)
+#include <string.h>   // strncmp
 
 // Necessary for Udev monitoring
 #include <libudev.h>  // apt-get install libudev-dev

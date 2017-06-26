@@ -70,12 +70,13 @@ int daemonize() {
 
 
 
-static void device_notification(struct udev_device* dev)
+static void device_notification(struct udev_device* dev, int status)
 {
 
 	notify_init("Sample");
 	NotifyNotification * n = NULL;
 	char * message;
+
 
 	const char* action = udev_device_get_action(dev);
 	if (! action) {
@@ -100,7 +101,12 @@ static void device_notification(struct udev_device* dev)
 		return;
 	}
 
-	n = notify_notification_new ("USBGuard", message, 0);
+	if (status == 0) {
+		n = notify_notification_new ("USBGuard [Whitelisted Device]", message, 0);
+	} else {
+		n = notify_notification_new ("USBGuard [Rejected]", message, 0);
+	}
+	
 
 	if(!notify_notification_show(n, 0)) {
 		syslog(LOG_WARNING, "[-] Could not display message");
@@ -108,63 +114,69 @@ static void device_notification(struct udev_device* dev)
 	}
 }
 
+
+int strtodec(const char * num) {
+
+	int dec = 0, i, j, len;
+
+	len = strlen(num);
+	for(i=0; i<len; i++){
+		dec = dec * 10 + ( num[i] - '0' );
+	}
+
+	return dec;
+}
+ 
+/*
+	Returns 0 if whitelisted, 1 otherwise
+*/
+static int check_whitelist(struct udev_device * dev) {
+
+	deviceID *iter = whitelist;
+
+	// Grab device information
+	const char* vendor = udev_device_get_sysattr_value(dev, "idVendor");
+	const char* product = udev_device_get_sysattr_value(dev, "idProduct");
+	const char* serial = udev_device_get_sysattr_value(dev, "serial");
+
+	if(!vendor || !product || !serial) {
+		return 1;
+	}
+
+	// Loop through the whitelist
+	while (iter) {
+
+		printf("%s %s\n", serial, iter->serialnumber);
+		printf("%s %d\n", product, iter->productID);
+		printf("%s %d\n", vendor, iter->vendorID);
+
+		if (strncmp(serial, iter->serialnumber, sizeof(serial)) &&
+			(strtodec(product) == iter->productID) &&
+			(strtodec(vendor) == iter->vendorID)) {
+			return 0;
+		}
+
+		// Move to next item
+		iter = iter->next;
+	}
+
+	return 1;
+} 
+
+
 static void process_device(struct udev_device* dev)
 {
 	if (dev) {
 		if (udev_device_get_devnode(dev)) {
 
-			// TODO: Filter devices
-
+			//check_whitelist(dev)
 			// Display a notification
-			device_notification(dev);
+			device_notification(dev, check_whitelist(dev));
 		}
 
 		udev_device_unref(dev);
 	}
 }
-
-
-/*
- * returns 0 if no match, 1 if match
- *
- * Taken from drivers/usb/core/driver.c, as it's not exported for our use :(
- 
-static int usb_match_device(struct usb_device *dev,
-			    const struct usb_device_id *id)
-{
-	if ((id->match_flags & USB_DEVICE_ID_MATCH_VENDOR) && id->idVendor != le16_to_cpu(dev->descriptor.idVendor)) {
-		return 0;
-	}
-		
-
-	if ((id->match_flags & USB_DEVICE_ID_MATCH_PRODUCT) && id->idProduct != le16_to_cpu(dev->descriptor.idProduct)) {
-		return 0;
-	}
-
-	/* No need to test id->bcdDevice_lo != 0, since 0 is never
-	greater than any unsigned number. 
-	if ((id->match_flags & USB_DEVICE_ID_MATCH_DEV_LO) && (id->bcdDevice_lo > le16_to_cpu(dev->descriptor.bcdDevice))) {
-		return 0;
-	}
-
-	if ((id->match_flags & USB_DEVICE_ID_MATCH_DEV_HI) && (id->bcdDevice_hi < le16_to_cpu(dev->descriptor.bcdDevice))){
-		return 0;
-	}
-
-	if ((id->match_flags & USB_DEVICE_ID_MATCH_DEV_CLASS) && (id->bDeviceClass != dev->descriptor.bDeviceClass)) {
-		return 0;
-	}
-
-	if ((id->match_flags & USB_DEVICE_ID_MATCH_DEV_SUBCLASS) && (id->bDeviceSubClass != dev->descriptor.bDeviceSubClass)) {
-		return 0;
-	}
-
-	if ((id->match_flags & USB_DEVICE_ID_MATCH_DEV_PROTOCOL) && (id->bDeviceProtocol != dev->descriptor.bDeviceProtocol)) {
-		return 0;
-	}
-
-	return 1;
-} */
 
 
 
@@ -216,7 +228,7 @@ deviceID * create_device(char * serialnumber, int vendor, int product) {
 void print_whitelist (deviceID * list) {
 
 	// Pointer to head of the linked-list
-	deviceID *iter = list;
+	deviceID *iter = whitelist;
 
 	printf("\n\n                 Whitelist              \n"
 		   "------------------------------------------\n"
@@ -257,11 +269,11 @@ int parse_config(){
 	while(fgets(line, sizeof(line), pFile)) {
 
 		// Read in formatted string from line
-		if(sscanf (line,"%s %d %d",serialnumber,&vendor, &product)) {
+		if(sscanf (line,"%s %d %d",serialnumber, &vendor, &product)) {
 
 
 			
-
+			// Add a new node to the linked list (whitelist)
 			deviceID * new_device = create_device (serialnumber, vendor, product);
 
 			if(new_device){
@@ -298,8 +310,9 @@ int main(int * argc, int ** argv) {
 		exit(1);
 	}
 
+	
 	// Daemonize and run in the backgroun
-	daemonize();
+	//daemonize();
 
 	if (0> asprintf(&message, "Background service is running...\nPID: %d", getpid())) {
 		return EXIT_FAILURE;
@@ -315,13 +328,17 @@ int main(int * argc, int ** argv) {
 		return EXIT_FAILURE;
 	}
 	
+
+	// Create the whitelist 
 	parse_config();
 
 	syslog(LOG_NOTICE, "[+] USBGuard Started");
 
 	// Begin monitoring for USB insertions/removals
 	monitor_devices(udev);
-	//monitor();
+
+
+
 
 	// Cleanup
 	syslog(LOG_NOTICE, "[-] USBGuard Stopped");
