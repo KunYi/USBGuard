@@ -6,22 +6,11 @@
 
 */
 
-#define _GNU_SOURCE
-#include <stdio.h>    //printf(3)
-#include <stdlib.h>   //exit(3)
-#include <unistd.h>   //fork(3), chdir(3), sysconf(3)
-#include <signal.h>   //signal(3)
-#include <sys/stat.h> //umask(3)
-#include <syslog.h>   //syslog(3), openlog(3), closelog(3)
+#include "daemon.h"
 
-// Necessary for Udev monitoring
-#include <libudev.h>  // apt-get install libudev-dev
+// The whitelist
+deviceID * whitelist = NULL;
 
-// Necessary for Desktop notifications
-#include <libnotify/notify.h> // apt-get install libnotify-dev
-
-
-#define SUBSYSTEM "usb"
 
 int daemonize() {
 
@@ -207,6 +196,92 @@ static void monitor_devices(struct udev* udev)
 	}
 }
 
+deviceID * create_device(char * serialnumber, int vendor, int product) {
+
+	// Allocate memory
+	deviceID * dpointer = malloc(sizeof(deviceID));
+
+	// Set values
+	if(dpointer) {
+		dpointer->serialnumber = serialnumber;
+		dpointer->vendorID = vendor;
+		dpointer->productID = product;
+		dpointer->next = NULL;
+	} 
+
+	return dpointer;
+}
+
+
+void print_whitelist (deviceID * list) {
+
+	// Pointer to head of the linked-list
+	deviceID *iter = list;
+
+	printf("\n\n                 Whitelist              \n"
+		   "------------------------------------------\n"
+		   "   Serial Number  | VendorID |  ProductID \n"
+		   "------------------------------------------\n");
+
+
+	// Loop through the list
+	while (iter) {
+
+		// Print the device information
+		printf(" %s     %d        %d\n", iter->serialnumber, iter->vendorID, iter->productID);   
+
+		// Move to next item
+		iter = iter->next;
+	}
+
+}
+
+
+int parse_config(){
+
+	// Arguments
+	char serialnumber[50];
+	int vendor, product;
+
+	// File and line variables
+	char line[256];
+	FILE * pFile;
+
+	
+	// Open the file
+	if ((pFile = fopen("usb-whitelist.cfg","rw+")) == NULL) {
+		return 1;
+	}
+
+	// Read lines until end of file
+	while(fgets(line, sizeof(line), pFile)) {
+
+		// Read in formatted string from line
+		if(sscanf (line,"%s %d %d",serialnumber,&vendor, &product)) {
+
+
+			
+
+			deviceID * new_device = create_device (serialnumber, vendor, product);
+
+			if(new_device){
+
+				// Make the new entry the head 
+				new_device->next = whitelist;
+
+				whitelist = new_device;
+			}   
+
+
+		} 
+		
+	}
+
+	fclose(pFile);
+	print_whitelist(whitelist);
+
+}
+
 
 
 int main(int * argc, int ** argv) {
@@ -240,6 +315,7 @@ int main(int * argc, int ** argv) {
 		return EXIT_FAILURE;
 	}
 	
+	parse_config();
 
 	syslog(LOG_NOTICE, "[+] USBGuard Started");
 
