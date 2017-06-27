@@ -77,35 +77,36 @@ static void device_notification(struct udev_device* dev, int status)
 	NotifyNotification * n = NULL;
 	char * message;
 
+	// Status
+	char * s_msg = "Rejected";
+	if (status == 0) { asprintf(&s_msg, "Whitelisted"); }
+
+
 
 	const char* action = udev_device_get_action(dev);
 	if (! action) {
 		action = "exists";
 	}
 
+
+	// Grab device information
 	const char* vendor = udev_device_get_sysattr_value(dev, "idVendor");
-	if (! vendor) {
-		vendor = "0000";
-	}
-
 	const char* product = udev_device_get_sysattr_value(dev, "idProduct");
-	if (! product) {
-		product = "0000";
-	}
+	const char* serial = udev_device_get_sysattr_value(dev, "serial");
 
+	if(!vendor || !product || !serial) {
+		return;
+	}
 
 	if (0> asprintf(&message, 
-		"Node: %s\n   Serial #: %s\n   idVendor-idProduct: %s-%s\n   Action: %s\n",
-		udev_device_get_devnode(dev), udev_device_get_sysattr_value(dev, "serial"), vendor, product, action)) {
+		"Status: %s\n   Serial #: %s\n   idVendor-idProduct: %s-%s\n   Action: %s\n",
+		s_msg, serial, vendor, product, action)) {
 		syslog(LOG_WARNING, "[-] Format String failed");
 		return;
 	}
 
-	if (status == 0) {
-		n = notify_notification_new ("USBGuard [Whitelisted Device]", message, 0);
-	} else {
-		n = notify_notification_new ("USBGuard [Rejected]", message, 0);
-	}
+	
+	n = notify_notification_new ("USBGuard", message, 0);
 	
 
 	if(!notify_notification_show(n, 0)) {
@@ -148,10 +149,10 @@ static int check_whitelist(struct udev_device * dev) {
 
 		/* Debug print statements
 		printf("%s %s\n", serial, iter->serialnumber);
-		printf("%s %d\n", product, iter->productID);
-		printf("%s %d\n", vendor, iter->vendorID);*/
+		printf("%d %d\n", strtodec(product), iter->productID);
+		printf("%d %d\n", strtodec(vendor), iter->vendorID);*/
 
-		if (strncmp(serial, iter->serialnumber, sizeof(serial)) &&
+		if ((strncmp(serial, iter->serialnumber, strlen(serial))==0) &&
 			(strtodec(product) == iter->productID) &&
 			(strtodec(vendor) == iter->vendorID)) {
 			return 0;
@@ -170,7 +171,6 @@ static void process_device(struct udev_device* dev)
 	if (dev) {
 		if (udev_device_get_devnode(dev)) {
 
-			//check_whitelist(dev)
 			// Display a notification
 			device_notification(dev, check_whitelist(dev));
 		}
@@ -342,8 +342,6 @@ int main(int * argc, int ** argv) {
 
 	// Begin monitoring for USB insertions/removals
 	monitor_devices(udev);
-
-
 
 
 	// Cleanup
