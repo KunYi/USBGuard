@@ -272,8 +272,10 @@ int parse_config(){
 	// Read lines until end of file
 	while(fgets(line, sizeof(line), pFile)) {
 
+
+
 		// Read in formatted string from line
-		if(sscanf (line,"%s %d %d",serialnumber, &vendor, &product)) {
+		if((*line != '\n') && (strstr(line, "#") == NULL) && sscanf (line,"%s %d %d",serialnumber, &vendor, &product)) {
 
 
 			
