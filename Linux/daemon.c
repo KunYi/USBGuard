@@ -146,9 +146,10 @@ static int check_whitelist(struct udev_device * dev) {
 	// Loop through the whitelist
 	while (iter) {
 
+		/* Debug print statements
 		printf("%s %s\n", serial, iter->serialnumber);
 		printf("%s %d\n", product, iter->productID);
-		printf("%s %d\n", vendor, iter->vendorID);
+		printf("%s %d\n", vendor, iter->vendorID);*/
 
 		if (strncmp(serial, iter->serialnumber, sizeof(serial)) &&
 			(strtodec(product) == iter->productID) &&
@@ -215,10 +216,13 @@ deviceID * create_device(char * serialnumber, int vendor, int product) {
 
 	// Set values
 	if(dpointer) {
-		dpointer->serialnumber = serialnumber;
+		dpointer->serialnumber = malloc(50);
 		dpointer->vendorID = vendor;
 		dpointer->productID = product;
 		dpointer->next = NULL;
+
+		// Copy the serial number over in memory
+		memcpy(dpointer->serialnumber, serialnumber, 50);
 	} 
 
 	return dpointer;
@@ -310,9 +314,13 @@ int main(int * argc, int ** argv) {
 		exit(1);
 	}
 
+
+	// Create the whitelist 
+	parse_config();
+
 	
 	// Daemonize and run in the backgroun
-	//daemonize();
+	daemonize();
 
 	if (0> asprintf(&message, "Background service is running...\nPID: %d", getpid())) {
 		return EXIT_FAILURE;
@@ -329,8 +337,6 @@ int main(int * argc, int ** argv) {
 	}
 	
 
-	// Create the whitelist 
-	parse_config();
 
 	syslog(LOG_NOTICE, "[+] USBGuard Started");
 
