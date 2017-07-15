@@ -2,7 +2,7 @@
 
 ### Overview
 
-The methodology involves using the libudev library to setup an USB event listener. When a USB device is inserted the background daemon automatically checks the whitelist (stored in memory as a linked list) for the new device. If the device isn't on the whitelist it is force disconnected from the system using /sys/bus/usb/drivers/usb/unbind
+The methodology involves using the libudev library to setup a USB event listener. When a USB device is inserted the background daemon automatically checks the whitelist (stored in memory as a linked list) for the new device. If the device isn't on the whitelist it is force disconnected from the system using /sys/bus/usb/drivers/usb/unbind
 
   
 ### Installation
