@@ -6,13 +6,17 @@
 
 
 #define _GNU_SOURCE
-#include <stdio.h>    //printf(3)
-#include <stdlib.h>   //exit(3)
-#include <unistd.h>   //fork(3), chdir(3), sysconf(3)
-#include <signal.h>   //signal(3)
-#include <sys/stat.h> //umask(3)
-#include <syslog.h>   //syslog(3), openlog(3), closelog(3)
+#include <stdio.h>    // printf(3)
+#include <stdlib.h>   // exit(3)
+#include <unistd.h>   // fork(3), chdir(3), sysconf(3)
+#include <signal.h>   // signal(3)
+#include <sys/stat.h> // umask(3)
+#include <syslog.h>   // syslog(3), openlog(3), closelog(3)
 #include <string.h>   // strncmp
+#include <aio.h> 	  // async I/O 
+#include <sys/types.h> // aiocb datatype
+#include <fcntl.h> 	  // open() file descriptor
+#include <string.h>	  // strsep(3)
 
 // Necessary for Udev monitoring
 #include <libudev.h>  // apt-get install libudev-dev

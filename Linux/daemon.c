@@ -70,6 +70,71 @@ int daemonize() {
 
 
 
+int disconnect_device(struct udev_device* dev) {
+
+	// Open file descriptor to the bus unbind interface
+	int file = open("/sys/bus/usb/drivers/usb/unbind", O_WRONLY, 0);
+
+	/* http://man7.org/linux/man-pages/man7/aio.7.html
+	struct aiocb {
+		 The order of these fields is implementation-dependent 
+
+		int             aio_fildes;      File descriptor 
+		off_t           aio_offset;      File offset 
+		volatile void  *aio_buf;         Location of buffer 
+		size_t          aio_nbytes;      Length of transfer 
+		int             aio_reqprio;     Request priority 
+		struct sigevent aio_sigevent;    Notification method 
+		int             aio_lio_opcode;  Operation to be performed;
+		                                 lio_listio() only 
+
+	 Various implementation-internal fields not shown 
+	}; */
+
+
+	// Grab the path to the device
+	const char* path = udev_device_get_devpath(dev);
+	
+	char* token;
+	char* str = strdup(path);
+	char* location;
+
+	if(!path) {
+		close(file);
+		return 1;
+	}
+
+	// Grab only the relevant bus location from the path
+	while((token = strsep(&str, "/")) != NULL) {
+		location = strdup(token);
+	}
+
+	// create the control block structure
+	struct aiocb cb;
+	
+	memset(&cb, 0, sizeof(struct aiocb));
+	cb.aio_nbytes = strlen(location);
+	cb.aio_fildes = file;
+	cb.aio_offset = 0;
+	cb.aio_buf = location;
+
+	printf("%lu\n", strlen(location));
+	printf("%s\n", location);
+
+	// Async-write this location to the unbind interface
+	if(aio_write(&cb) == -1) {
+		printf("write failed\n");
+		close(file);
+		return 1;
+	}
+
+
+	close(file);
+	return 0;
+
+}
+
+
 static void device_notification(struct udev_device* dev, int status)
 {
 
@@ -168,8 +233,21 @@ static int check_whitelist(struct udev_device * dev) {
 
 static void process_device(struct udev_device* dev)
 {
+	// Number of failed disconnect async requests before continuing
+	int count = 0;
+
 	if (dev) {
 		if (udev_device_get_devnode(dev)) {
+
+			count = 0;
+
+			while(disconnect_device(dev) != 0) {
+
+				count+=1;
+				if (count > 5) {
+					break;
+				}
+			}
 
 			// Display a notification
 			device_notification(dev, check_whitelist(dev));
@@ -322,7 +400,7 @@ int main(int * argc, int ** argv) {
 
 	
 	// Daemonize and run in the backgroun
-	daemonize();
+	//daemonize();
 
 	if (0> asprintf(&message, "Background service is running...\nPID: %d", getpid())) {
 		return EXIT_FAILURE;
