@@ -8,6 +8,7 @@
 
 #include "daemon.h"
 
+
 // The whitelist
 deviceID * whitelist = NULL;
 
@@ -66,14 +67,12 @@ int daemonize() {
 	openlog ("USBGuard", LOG_PID, LOG_DAEMON);
 
 	return 0;
-}
+} 
 
 
 
 int disconnect_device(struct udev_device* dev) {
 
-	// Open file descriptor to the bus unbind interface
-	int file = open("/sys/bus/usb/drivers/usb/unbind", O_WRONLY, 0);
 
 	/* http://man7.org/linux/man-pages/man7/aio.7.html
 	struct aiocb {
@@ -92,12 +91,21 @@ int disconnect_device(struct udev_device* dev) {
 	}; */
 
 
+	// Open file descriptor to the bus unbind interface
+	int file = open("/sys/bus/usb/drivers/usb/unbind", O_WRONLY, 0);
+
+
+	if(file == -1) {
+		return 1;
+	}
+
 	// Grab the path to the device
 	const char* path = udev_device_get_devpath(dev);
 	
 	char* token;
 	char* str = strdup(path);
 	char* location;
+	
 
 	if(!path) {
 		close(file);
@@ -110,24 +118,37 @@ int disconnect_device(struct udev_device* dev) {
 	}
 
 	// create the control block structure
+	// and buffer to write
 	struct aiocb cb;
+	char write_buffer[strlen(location)+1];
 	
 	memset(&cb, 0, sizeof(struct aiocb));
-	cb.aio_nbytes = strlen(location);
+	memcpy(write_buffer, location, strlen(location)+1);
+	cb.aio_nbytes = strlen(location)+1;
 	cb.aio_fildes = file;
 	cb.aio_offset = 0;
-	cb.aio_buf = location;
+	cb.aio_buf = write_buffer;
 
-	printf("%lu\n", strlen(location));
-	printf("%s\n", location);
+	//printf("%lu\n", strlen(write_buffer));
+	//printf("%s\n", write_buffer);
 
 	// Async-write this location to the unbind interface
 	if(aio_write(&cb) == -1) {
-		printf("write failed\n");
 		close(file);
 		return 1;
 	}
 
+	/* Wait until completion */
+	while (aio_error (&cb) == EINPROGRESS);
+
+	// Check for errors
+	int err = aio_error(&cb);
+	int ret = aio_return(&cb);
+
+	if (err != 0) {
+		close (file);
+		return 1;
+	}
 
 	close(file);
 	return 0;
@@ -159,9 +180,11 @@ static void device_notification(struct udev_device* dev, int status)
 	const char* product = udev_device_get_sysattr_value(dev, "idProduct");
 	const char* serial = udev_device_get_sysattr_value(dev, "serial");
 
+
 	if(!vendor || !product || !serial) {
 		return;
 	}
+
 
 	if (0> asprintf(&message, 
 		"Status: %s\n   Serial #: %s\n   idVendor-idProduct: %s-%s\n   Action: %s\n",
@@ -235,22 +258,31 @@ static void process_device(struct udev_device* dev)
 {
 	// Number of failed disconnect async requests before continuing
 	int count = 0;
+	int result = 1;
 
 	if (dev) {
 		if (udev_device_get_devnode(dev)) {
 
-			count = 0;
 
-			while(disconnect_device(dev) != 0) {
-
-				count+=1;
-				if (count > 5) {
-					break;
-				}
-			}
+			result = check_whitelist(dev);
 
 			// Display a notification
-			device_notification(dev, check_whitelist(dev));
+			device_notification(dev, result);
+
+			if(result) {
+
+				// Disconnect the non-whitelisted device
+				count = 0;
+
+				while(disconnect_device(dev) != 0) {
+					count+=1;
+					if (count > 5) {
+						return;
+					}
+				}	
+
+			}	
+			
 		}
 
 		udev_device_unref(dev);
@@ -401,6 +433,7 @@ int main(int * argc, int ** argv) {
 	
 	// Daemonize and run in the backgroun
 	//daemonize();
+	daemon(0,0);
 
 	if (0> asprintf(&message, "Background service is running...\nPID: %d", getpid())) {
 		return EXIT_FAILURE;

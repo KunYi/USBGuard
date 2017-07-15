@@ -15,6 +15,7 @@
 #include <string.h>   // strncmp
 #include <aio.h> 	  // async I/O 
 #include <sys/types.h> // aiocb datatype
+#include <errno.h> 	   // EINPROGRESS
 #include <fcntl.h> 	  // open() file descriptor
 #include <string.h>	  // strsep(3)
 
