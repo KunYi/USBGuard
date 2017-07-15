@@ -344,7 +344,7 @@ void print_whitelist (deviceID * list) {
 	// Pointer to head of the linked-list
 	deviceID *iter = whitelist;
 
-	printf("\n\n                 Whitelist              \n"
+	printf("\n\n               Whitelist               \n"
 		   "------------------------------------------\n"
 		   "   Serial Number  | VendorID |  ProductID \n"
 		   "------------------------------------------\n");
@@ -414,6 +414,10 @@ int parse_config(){
 
 int main(int * argc, int ** argv) {
 
+
+	printf("\n                USBGuard                \n"
+			"     Personal Computer USB Management    \n");
+
 	notify_init("Sample");
 	NotifyNotification * n = NULL;
 	char * message;
@@ -430,9 +434,15 @@ int main(int * argc, int ** argv) {
 	// Create the whitelist 
 	parse_config();
 
-	
+
+	if(geteuid() != 0) {
+		printf("\n[-] The daemon needs to run with root permissions"
+			   " to force disconnect devices.\n");
+		exit(1);
+	}
+
 	// Daemonize and run in the backgroun
-	//daemonize();
+	printf("\n[*] Starting daemon...look for the Ubuntu notification\n");
 	daemon(0,0);
 
 	if (0> asprintf(&message, "Background service is running...\nPID: %d", getpid())) {
