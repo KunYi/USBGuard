@@ -1,0 +1,17 @@
+# This file is part of USBGuard.
+#
+#
+# The service file is used by systemd to start binaries at boot
+#
+
+
+[Unit]
+Description=USBGuard USB Management Service
+
+[Service]s
+Type=forking
+ExecStart=/usr/lib/usbguard/usbguard-daemon
+Restart=always
+
+[Install]
+WantedBy=graphical.target
