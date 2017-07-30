@@ -13,64 +13,6 @@
 deviceID * whitelist = NULL;
 
 
-int daemonize() {
-
-	pid_t pid;
-
-	pid = fork();
-
-	if (pid < 0){
-		exit(EXIT_FAILURE);
-	}
-
-	if (pid > 0) {
-		exit(EXIT_SUCCESS);
-	}
-
-	// On success: The child process becomes session leader
-	if (setsid() < 0) {
-		exit(EXIT_FAILURE);
-	}
-
-	/* Catch, ignore and handle signals */
-	//TODO: Implement a working signal handler */
-	signal(SIGCHLD, SIG_IGN);
-	signal(SIGHUP, SIG_IGN);
-
-	// Fork off for the second time
-	pid = fork();
-
-	// An error occurred
-	if (pid < 0) {
-		exit(EXIT_FAILURE);
-	}
-
-	// Success: Let the parent terminate 
-	if (pid > 0) {
-		exit(EXIT_SUCCESS);
-	}
-
-	// Set new file permissions
-	umask(0);
-
-	// Change the working directory to the root directory 
-	// or another appropriated directory
-	chdir("/");
-
-	// Close all open file descriptors 
-	int x;
-	for (x = sysconf(_SC_OPEN_MAX); x>=0; x--) {
-		close (x);
-	}
-
-	// Open the log file 
-	openlog ("USBGuard", LOG_PID, LOG_DAEMON);
-
-	return 0;
-} 
-
-
-
 int disconnect_device(struct udev_device* dev) {
 
 
@@ -317,6 +259,8 @@ static void monitor_devices(struct udev* udev)
 			process_device(dev);
 		}
 	}
+
+	syslog(LOG_NOTICE, "[-] Stopped monitoring");
 }
 
 deviceID * create_device(char * serialnumber, int vendor, int product) {
@@ -375,7 +319,7 @@ int parse_config(){
 
 	
 	// Open the file
-	if ((pFile = fopen("usb-whitelist.cfg","rw+")) == NULL) {
+	if ((pFile = fopen("/etc/usbguard/usb-whitelist.cfg","rw+")) == NULL) {
 		return 1;
 	}
 
@@ -411,6 +355,43 @@ int parse_config(){
 }
 
 
+void clear_whitelist(){
+
+	// Iterate through the linked list freeing memory blocks
+	while(whitelist) {
+		// Get head of the list
+		deviceID *block = whitelist;
+
+		// Move head to next
+		whitelist = whitelist->next;
+
+		// Delete the head
+		if(block->serialnumber) {
+			free(block->serialnumber);
+		}
+		free(block);
+	}
+
+}
+
+
+void handle_signal(int sig) {
+
+	if (sig == SIGINT) {
+		syslog(LOG_NOTICE, "[*] Shutting down USBGuard");
+		closelog();
+		syslog(LOG_NOTICE, "[*] USBGuard Stopped");
+		exit(0);
+	} else if (sig == SIGHUP) {
+		syslog(LOG_NOTICE, "[*] Reloading configuration file...");
+		clear_whitelist();
+		parse_config();
+	} else {
+		syslog(LOG_NOTICE, "[-] Unhandled signal...");
+	}
+}
+
+
 
 int main(int * argc, int ** argv) {
 
@@ -435,17 +416,28 @@ int main(int * argc, int ** argv) {
 	parse_config();
 
 
+	// Open the log file 
+	openlog ("USBGuard", LOG_PID, LOG_DAEMON);
+
+
 	if(geteuid() != 0) {
 		printf("\n[-] The daemon needs to run with root permissions"
-			   " to force disconnect devices.\n");
+			   " to disconnect devices.\n");
+		syslog(LOG_NOTICE, "[-] Not run with appropriate permissions");
+		closelog();
 		exit(1);
 	}
 
+
 	// Daemonize and run in the backgroun
 	printf("\n[*] Starting daemon...look for the Ubuntu notification\n");
-	daemon(0,0);
+	//daemon(0,0);
 
-	if (0> asprintf(&message, "Background service is running...\nPID: %d", getpid())) {
+	/* Daemon will handle two signals */
+	signal(SIGINT, handle_signal);
+	signal(SIGHUP, handle_signal);
+
+	if (0> asprintf(&message, "[+] Background service is running...\nPID: %d", getpid())) {
 		return EXIT_FAILURE;
 	}
 	
@@ -456,12 +448,13 @@ int main(int * argc, int ** argv) {
 
 	if(!notify_notification_show(n, 0)) {
 		syslog(LOG_WARNING, "[-] Could not display message");
-		return EXIT_FAILURE;
+		//return EXIT_FAILURE;
 	}
 	
 
 
 	syslog(LOG_NOTICE, "[+] USBGuard Started");
+	syslog(LOG_NOTICE, "%s", message);
 
 	// Begin monitoring for USB insertions/removals
 	monitor_devices(udev);

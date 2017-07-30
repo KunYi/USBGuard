@@ -8,10 +8,9 @@
 [Unit]
 Description=USBGuard USB Management Service
 
-[Service]s
-Type=forking
+[Service]
 ExecStart=/usr/lib/usbguard/usbguard-daemon
 Restart=always
 
 [Install]
-WantedBy=graphical.target
+WantedBy=multi-user.target
